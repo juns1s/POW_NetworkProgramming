@@ -1,0 +1,1 @@
+gcc main.c proof_of_work.c -o main -lssl -lcrypto
