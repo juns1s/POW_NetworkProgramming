@@ -16,15 +16,10 @@ int main(){
     printf("difficulty: ");
     scanf("%d", &difficulty);
 
-    clock_t start = clock();
-
     findNonce(nonce, sha256Hash, challenge, difficulty,startNonce,nonceRange);
-
-    clock_t end = clock();
 
     printf("Challenge + Nonce: %s + %s\n", challenge, nonce);
     printf("Hash: %s\n", sha256Hash);
-    printf("Total Time: %lf\n", (double)(end - start)/ CLOCKS_PER_SEC);
 
     return 0;
 }
