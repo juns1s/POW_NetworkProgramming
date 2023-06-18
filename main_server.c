@@ -131,7 +131,7 @@ int main(int argc, char** argv)
     }
     free(challenge);
   }
-
+  
   dwp_create_req(difficulty, workload, challenge, bodylen, &reqPacket);
 
   // Proof of Work 시작
@@ -160,7 +160,7 @@ int main(int argc, char** argv)
 
   elapsedtime = clock() - startTime;
 
-  printf(">> Elapsed Time: %.2lf\n", elapsedtime/(double)1000);
+  printf(">> Elapsed Time: %.2lf\n", elapsedtime/(double)CLOCKS_PER_SEC);
   printf(">> Nonce: %d\n", resultNonce);
 
 	CLOSESOCKET(listenSd);
@@ -200,7 +200,7 @@ void * client_module(void * arg)
 
   // 연결된 작업서버에 작업 요청을 전송한다.
   dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
-	printf(">> The work request is sent to %d\n", connectSd);
+	printf(">> The work request is sent to #%d\n", connectSd);
 
   dwp_packet resPacket;
 	int recvLen;
@@ -214,7 +214,7 @@ void * client_module(void * arg)
     // 다른 스레드에서 정답을 구한 경우, 연결된 작업서버에 중단 요청 전송
     if (isFinished) {
       dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_STOP, NULL);
-      printf(">> The stop request is sent to %d\n", connectSd);
+      printf(">> The stop request is sent to #%d\n", connectSd);
       break;
     }
 
@@ -257,9 +257,10 @@ void * client_module(void * arg)
         fprintf(stderr, "#%d Invalid packet type.\n", connectSd);
         break;
     }
+    dwp_destroy(&resPacket);
 	}
 
-	fprintf(stderr,"#%d The client is disconnected.\n", connectSd);
+	fprintf(stderr,">> The client #%d is disconnected.\n", connectSd);
 	CLOSESOCKET(connectSd);
   dwp_destroy(&resPacket);
 }

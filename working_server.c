@@ -147,6 +147,7 @@ void* readThread(void* arg)
         dwp_copy(&packet, &reqPacket);
         isWorkRequested = true;
         pthread_mutex_unlock(&mutex);
+        dwp_destroy(&reqPacket);
         break;
       case DWP_TYPE_STOP: // 수신한 패킷이 중단 요청인 경우
         printf(">> The stop request is received\n");
@@ -197,6 +198,7 @@ void* findNonceThread(void* arg)
     isWorkRequested = false;
     memset(&reqPacket, 0, sizeof(reqPacket));
     dwp_copy(&reqPacket, &packet);
+    dwp_destroy(&packet);
     pthread_mutex_unlock(&mutex);
 
     unsigned int resultNonce;   // 결과 nonce
@@ -207,10 +209,7 @@ void* findNonceThread(void* arg)
     unsigned int workload = reqPacket.workload;     // 작업량
     char* challenge = strdup(reqPacket.challenge);  // 챌린지
 
-    printf(">> Start to find nonce\n");
-    printf(">>>> Challenge: %s\n", challenge);
-    printf(">>>> Difficulty: %d\n", difficulty);
-    printf(">>>> Range: [%d..%d)\n", startNonce, startNonce + workload);
+    printf(">> Start to find nonce in range: [%d..%d)\n", startNonce, startNonce + workload);
 
     // nonce 값을 찾는다.
     int res = findNonce(&resultNonce, sha256Hash, challenge, difficulty, startNonce, workload);
@@ -220,16 +219,23 @@ void* findNonceThread(void* arg)
     switch (res) {
       case POW_NOTFOUND:  // 난이도 조건을 만족하는 nonce 값이 없는 경우
         dwp_send(serverSd, DWP_QR_RESPONSE, DWP_TYPE_FAIL, NULL);
+        printf(">> Failure response is sent\n");
         break;
       case POW_SUCCESS: // nonce 값을 찾은 경우
         memset(&resPacket, 0, sizeof(resPacket));
         dwp_create_res(difficulty, resultNonce, workload, challenge, strlen(challenge), &resPacket);
         dwp_send(serverSd, DWP_QR_RESPONSE, DWP_TYPE_SUCCESS, &resPacket);
+        printf(">> Success response is sent\n");
         break;
       case POW_TERMINATED:  // findNonce가 중단된 경우
+        printf(">> findNonce is terminated\n");
+        break;
       default:
         break;
     }
+
+    free(challenge);
+    dwp_destroy(&reqPacket);
   }
 
   dwp_destroy(&reqPacket);
