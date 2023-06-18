@@ -7,11 +7,11 @@
 int main(){
     char *challenge = "201928732019283320192836";
     char sha256Hash[65];
-    char nonce[20];
+    unsigned int nonce;
 
     int difficulty;
-    int startNonce = 0;
-    int nonceRange = 1000000000;
+    unsigned int startNonce = 0;
+    unsigned int nonceRange = 1000000000;
 
     printf("difficulty: ");
     scanf("%d", &difficulty);

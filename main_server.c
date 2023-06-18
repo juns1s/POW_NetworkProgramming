@@ -13,25 +13,33 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <time.h>
+#include "dwp.h"
 
 #define ISVALIDSOCKET(s) ((s) >= 0)
 #define CLOSESOCKET(s) close(s)
 #define SOCKET int
 #define NUM_WORKING_SERVER 2
+#define MAX_INPUT_LENGTH 1000
 
 void errProc(const char *);
 void * client_module(void *);
 int makeNbSocket(SOCKET);
 
-static int nextNonse = 0;
-static int resultNonse = -1;
+static int nextNonce = 0;
+static int resultNonce = -1;
 static pthread_mutex_t mutex;
+
+typedef struct {
+  dwp_packet packet;
+  SOCKET socket;
+} ThreadParams;
 
 int main(int argc, char** argv)
 {
 	SOCKET listenSd, connectSd[NUM_WORKING_SERVER];
 	struct sockaddr_in clntAddr;
-	int clntAddrLen, strLen;
+	int clntAddrLen;
+  dwp_packet reqPacket;
 	pthread_t thread;
 
 	if(argc != 2)
@@ -84,36 +92,65 @@ int main(int argc, char** argv)
 		if(!ISVALIDSOCKET(connectSd[i])) {
 			errProc("accept");
 		}
-    printf("A working server is connected...\n");
+    printf(">> A working server is connected\n");
 	}
 
   // 난이도와 서버당 작업량, 챌린지를 입력받는다.
-  // TODO: 입력된 정보를 바탕으로 패킷 구조체 초기화
-  char read[1000];
-  printf(">> Input difficulty:\n");
-  fgets(read, 1000, stdin);
+  int difficulty, bodylen;
+  unsigned int workload;
+  char* challenge;
+  char input[MAX_INPUT_LENGTH];
+  memset(&reqPacket, 0, sizeof(reqPacket));
+
+  while (true) {
+    printf(">> Input difficulty:\n");
+    fgets(input, sizeof(input), stdin);
+    difficulty = atoi(input);
+    if (difficulty > 0) {
+      break;
+    }
+  }
   
-  printf(">> Input workload:\n");
-  fgets(read, 1000, stdin);
+  while (true) {
+    printf(">> Input workload:\n");
+    fgets(input, sizeof(input), stdin);
+    workload = strtoul(input, NULL, 10);
+    if (workload > 0) {
+      break;
+    }
+  }
   
-  printf(">> Input challenge:\n");
-  fgets(read, 1000, stdin);
+  while (true) {
+    printf(">> Input challenge:\n");
+    fgets(input, sizeof(input), stdin);
+    input[strcspn(input, "\n")] = '\0'; // 개행문자를 널문자로 변경
+    challenge = strdup(input);
+    bodylen = strlen(challenge);
+    if (bodylen > 0) {
+      break;
+    }
+    free(challenge);
+  }
+
+  dwp_create_req(difficulty, workload, challenge, bodylen, &reqPacket);
 
   // Proof of Work 시작
   clock_t startTime, elapsedtime;
   startTime = clock();
 
   // 연결된 작업서버에 대한 요청 전송을 멀티스레드로 관리한다.
-  // TODO: client_module에 소켓에 더해 패킷도 전달
   for (int i = 0; i < NUM_WORKING_SERVER; i++) {
-		pthread_create(&thread, NULL, client_module, (void *) &connectSd[i]);
+    ThreadParams* params = malloc(sizeof(ThreadParams));
+    params->packet = reqPacket;
+    params->socket = connectSd[i];
+		pthread_create(&thread, NULL, client_module, (void *)params);
 		pthread_detach(thread);
   }
 
   bool isFinished = false;
   while (true) {
-    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonse 보호
-    isFinished = resultNonse >= 0;
+    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonce 보호
+    isFinished = resultNonce >= 0;
     pthread_mutex_unlock(&mutex);
     
     if (isFinished) {
@@ -124,10 +161,12 @@ int main(int argc, char** argv)
   elapsedtime = clock() - startTime;
 
   printf(">> Elapsed Time: %.2lf\n", elapsedtime/(double)1000);
-  printf(">> Nonse: %d\n", resultNonse);
+  printf(">> Nonce: %d\n", resultNonce);
 
 	CLOSESOCKET(listenSd);
   pthread_mutex_destroy(&mutex);
+  free(challenge);
+  dwp_destroy(&reqPacket);
 	return 0;
 }
 
@@ -136,51 +175,93 @@ int main(int argc, char** argv)
 */
 void errProc(const char* str)
 {
-	fprintf(stderr,"%s: %s", str, strerror(errno));
+	fprintf(stderr,"## %s: %s\n", str, strerror(errno));
 	exit(errno);
 }
 
 /**
   * 작업서버를 관리하는 멀티스레드 함수이다.
 */
-void * client_module(void * data)
+void * client_module(void * arg)
 {
-  SOCKET connectSd;
-	char sBuff[BUFSIZ] = "hello\n";
-  connectSd = *((int *) data);
+  ThreadParams* params = (ThreadParams*)arg;
+  SOCKET connectSd = params->socket;
+	dwp_packet reqPacket = params->packet;
+  free(params);
+  
+  // 작업서버 소켓을 논블로킹 소켓으로 설정한다.
   makeNbSocket(connectSd);
 
-  // 연결된 작업서버에 작업 요청 전송
-  // TODO
-  send(connectSd, sBuff, strlen(sBuff), 0);
-	
-  char rBuff[BUFSIZ];
+  // 각 멀티스레드에 중복되지 않도록 작업을 분배한다.
+  pthread_mutex_lock(&mutex);
+  reqPacket.nonce = nextNonce;
+  nextNonce += reqPacket.workload;
+  pthread_mutex_unlock(&mutex);
+
+  // 연결된 작업서버에 작업 요청을 전송한다.
+  dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
+	printf(">> The work request is sent to %d\n", connectSd);
+
+  dwp_packet resPacket;
 	int recvLen;
   bool isFinished = false;
 
 	while(true) {
-    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonse 보호
-    isFinished = resultNonse >= 0;
+    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonce 보호
+    isFinished = resultNonce >= 0;
     pthread_mutex_unlock(&mutex);
 
     // 다른 스레드에서 정답을 구한 경우, 연결된 작업서버에 중단 요청 전송
     if (isFinished) {
-      // TODO
-      send(connectSd, sBuff, strlen(sBuff), 0);
+      dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_STOP, NULL);
+      printf(">> The stop request is sent to %d\n", connectSd);
       break;
     }
 
-    recvLen = recv(connectSd, rBuff, sizeof(rBuff), 0);
-		if (recvLen <= 0) {
+    // 작업서버에서 온 패킷이 있는지 확인한다.
+    recvLen = dwp_recv(connectSd, &resPacket);
+		if (recvLen <= 0) { 
       continue;
     }
 
-		// 패킷 type에 맞는 처리
-    // TODO
+    // 패킷이 요청(request) 패킷인 경우 무시한다.
+    if (resPacket.data.qr == DWP_QR_REQUEST) {
+      fprintf(stderr, "#%d Invalid request packet.\n", connectSd);
+      continue;
+    }
+
+    switch (resPacket.data.type) {
+      case DWP_TYPE_SUCCESS:  // 수신한 패킷이 성공 응답인 경우
+        pthread_mutex_lock(&mutex);
+        isFinished = resultNonce >= 0;
+        // 가장 빠르게 제출된 답안을 채택한다.
+        if (!isFinished) {
+          resultNonce = resPacket.nonce;
+          printf(">> The answer is Found: %d\n", resultNonce);
+        }
+        pthread_mutex_unlock(&mutex);
+        break;
+      case DWP_TYPE_FAIL: // 수신한 패킷이 실패 응답인 경우
+        pthread_mutex_lock(&mutex);
+        isFinished = resultNonce >= 0;
+        reqPacket.nonce = nextNonce;
+        nextNonce += reqPacket.workload;
+        // 아직 성공한 작업서버가 없다면, 실패한 작업서버에 다음 작업을 분배
+        if (!isFinished) {
+          dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
+          printf(">> The work request is sent to %d\n", connectSd);
+        }
+        pthread_mutex_unlock(&mutex);
+        break;
+      default:
+        fprintf(stderr, "#%d Invalid packet type.\n", connectSd);
+        break;
+    }
 	}
 
-	fprintf(stderr,"The client is disconnected.\n");
-	close(connectSd);
+	fprintf(stderr,"#%d The client is disconnected.\n", connectSd);
+	CLOSESOCKET(connectSd);
+  dwp_destroy(&resPacket);
 }
 
 /**

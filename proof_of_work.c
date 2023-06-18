@@ -1,5 +1,12 @@
 #include <string.h>
+#include <stdbool.h>
 #include <openssl/evp.h>
+
+#define POW_SUCCESS 0
+#define POW_NOTFOUND -1
+#define POW_TERMINATED -2
+
+volatile bool terminateFindNonce = false;
 
 void sha256_hash_string(const unsigned char *inputString, char outputBuffer[65])
 {
@@ -21,7 +28,7 @@ void sha256_hash_string(const unsigned char *inputString, char outputBuffer[65])
     outputBuffer[64] = 0;
 }
 
-void findNonce(char nonce[20], char hashresult[65], const char * challenge, int difficulty, int startNonce, int nonceRange){
+int findNonce(unsigned int* nonce, char hashresult[65], const char * challenge, int difficulty, unsigned int startNonce, unsigned int nonceRange){
     char hash[65];
 
     // 난이도에 부합하는 비교용 문자열 생성
@@ -30,6 +37,9 @@ void findNonce(char nonce[20], char hashresult[65], const char * challenge, int 
     target[difficulty] = '\0';
 
     for(int i = 0; i < nonceRange; i++){
+        if (terminateFindNonce) {
+          return POW_TERMINATED;
+        }
         char inputString[100];
         // challenge + nonce 문자열
         sprintf(inputString, "%s%d", challenge, startNonce+i);
@@ -43,15 +53,16 @@ void findNonce(char nonce[20], char hashresult[65], const char * challenge, int 
         //hash값이 난이도 조건을 충족하는 경우
         if (strncmp(hash, target, difficulty) == 0) {
             printf("Nonce found: %d\n", startNonce+i);
-            sprintf(nonce, "%d", startNonce+i);
+            *nonce = startNonce + i;
             strcpy(hashresult, hash);
-            return;
+            return POW_SUCCESS;
         }
 
         if(i%10000==0)
             system("clear");
     }
     printf("Nonce is not this range\n");
-    sprintf(nonce, "failed");
+    *nonce = -1;
     sprintf(hashresult, "failed");
+    return POW_NOTFOUND;
 }
