@@ -1,6 +1,6 @@
 #include <string.h>
 #include <stdbool.h>
-#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 #define POW_SUCCESS 0
 #define POW_NOTFOUND -1
@@ -10,22 +10,18 @@ volatile bool terminateFindNonce = false;
 
 void sha256_hash_string(const unsigned char *inputString, char outputBuffer[65])
 {
-    EVP_MD_CTX *mdctx;
-    const EVP_MD *md;
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int hashLen;
+    SHA256_CTX sha256Context;
+    unsigned char hash[SHA256_DIGEST_LENGTH];
 
-    md = EVP_sha256();
-    mdctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(mdctx, md, NULL);
-    EVP_DigestUpdate(mdctx, inputString, strlen((const char *)inputString));
-    EVP_DigestFinal_ex(mdctx, hash, &hashLen);
-    EVP_MD_CTX_free(mdctx);
+    SHA256_Init(&sha256Context);
+    SHA256_Update(&sha256Context, inputString, strlen((const char *)inputString));
+    SHA256_Final(hash, &sha256Context);
 
-    for (int i = 0; i < hashLen; i++)
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
         sprintf(outputBuffer + (i * 2), "%02x", hash[i]);
+    }
 
-    outputBuffer[64] = 0;
+    outputBuffer[64] = '\0';
 }
 
 int findNonce(unsigned int* nonce, char hashresult[65], const char * challenge, int difficulty, unsigned int startNonce, unsigned int nonceRange){
