@@ -25,19 +25,25 @@ typedef struct _DWP_Header_Data {
 
 typedef struct _DWP_Packet {
   dwp_header_data data;
-  unsigned int nonse;
+  unsigned int nonce;
   unsigned int workload;
   char* challenge;
 } dwp_packet;
 
-int dwp_create_req(int difficulty, int workload, const char* challenge, int bodylen, dwp_packet* packet);
+int dwp_create_req(int difficulty, unsigned int workload, const char* challenge, int bodylen, dwp_packet* packet);
+
+int dwp_create_res(int difficulty, unsigned int nonce, unsigned int workload, const char* challenge, int bodylen, dwp_packet* packet);
 
 int dwp_to_arraybuffer(const dwp_packet* packet, char* buffer);
 
 int dwp_to_struct(const char* buffer, dwp_packet* packet);
 
-int dwp_send(int fd, int type, const dwp_packet* packet);
+int dwp_send(int fd, int qr, int type, const dwp_packet* packet);
 
 int dwp_recv(int fd, dwp_packet* packet);
+
+int dwp_copy(dwp_packet* dest, const dwp_packet* src);
+
+int dwp_destroy(dwp_packet* packet);
 
 #endif

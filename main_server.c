@@ -25,8 +25,8 @@ void errProc(const char *);
 void * client_module(void *);
 int makeNbSocket(SOCKET);
 
-static int nextNonse = 0;
-static int resultNonse = -1;
+static int nextNonce = 0;
+static int resultNonce = -1;
 static pthread_mutex_t mutex;
 
 typedef struct {
@@ -96,7 +96,8 @@ int main(int argc, char** argv)
 	}
 
   // 난이도와 서버당 작업량, 챌린지를 입력받는다.
-  int difficulty, workload, bodylen;
+  int difficulty, bodylen;
+  unsigned int workload;
   char* challenge;
   char input[MAX_INPUT_LENGTH];
   memset(&reqPacket, 0, sizeof(reqPacket));
@@ -113,7 +114,7 @@ int main(int argc, char** argv)
   while (true) {
     printf(">> Input workload:\n");
     fgets(input, sizeof(input), stdin);
-    workload = atoi(input);
+    workload = strtoul(input, NULL, 10);
     if (workload > 0) {
       break;
     }
@@ -148,8 +149,8 @@ int main(int argc, char** argv)
 
   bool isFinished = false;
   while (true) {
-    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonse 보호
-    isFinished = resultNonse >= 0;
+    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonce 보호
+    isFinished = resultNonce >= 0;
     pthread_mutex_unlock(&mutex);
     
     if (isFinished) {
@@ -160,12 +161,12 @@ int main(int argc, char** argv)
   elapsedtime = clock() - startTime;
 
   printf(">> Elapsed Time: %.2lf\n", elapsedtime/(double)1000);
-  printf(">> Nonse: %d\n", resultNonse);
+  printf(">> Nonce: %d\n", resultNonce);
 
 	CLOSESOCKET(listenSd);
   pthread_mutex_destroy(&mutex);
   free(challenge);
-  free(reqPacket.challenge);
+  dwp_destroy(&reqPacket);
 	return 0;
 }
 
@@ -193,12 +194,12 @@ void * client_module(void * arg)
 
   // 각 멀티스레드에 중복되지 않도록 작업을 분배한다.
   pthread_mutex_lock(&mutex);
-  reqPacket.nonse = nextNonse;
-  nextNonse += reqPacket.workload;
+  reqPacket.nonce = nextNonce;
+  nextNonce += reqPacket.workload;
   pthread_mutex_unlock(&mutex);
 
   // 연결된 작업서버에 작업 요청을 전송한다.
-  dwp_send(connectSd, DWP_TYPE_WORK, &reqPacket);
+  dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
 	printf(">> The work request is sent to %d\n", connectSd);
 
   dwp_packet resPacket;
@@ -206,13 +207,13 @@ void * client_module(void * arg)
   bool isFinished = false;
 
 	while(true) {
-    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonse 보호
-    isFinished = resultNonse >= 0;
+    pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonce 보호
+    isFinished = resultNonce >= 0;
     pthread_mutex_unlock(&mutex);
 
     // 다른 스레드에서 정답을 구한 경우, 연결된 작업서버에 중단 요청 전송
     if (isFinished) {
-      dwp_send(connectSd, DWP_TYPE_STOP, NULL);
+      dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_STOP, NULL);
       printf(">> The stop request is sent to %d\n", connectSd);
       break;
     }
@@ -232,22 +233,22 @@ void * client_module(void * arg)
     switch (resPacket.data.type) {
       case DWP_TYPE_SUCCESS:  // 수신한 패킷이 성공 응답인 경우
         pthread_mutex_lock(&mutex);
-        isFinished = resultNonse >= 0;
+        isFinished = resultNonce >= 0;
         // 가장 빠르게 제출된 답안을 채택한다.
         if (!isFinished) {
-          resultNonse = resPacket.nonse;
-          printf(">> The answer is Found: %d\n", resultNonse);
+          resultNonce = resPacket.nonce;
+          printf(">> The answer is Found: %d\n", resultNonce);
         }
         pthread_mutex_unlock(&mutex);
         break;
       case DWP_TYPE_FAIL: // 수신한 패킷이 실패 응답인 경우
         pthread_mutex_lock(&mutex);
-        isFinished = resultNonse >= 0;
-        reqPacket.nonse = nextNonse;
-        nextNonse += reqPacket.workload;
+        isFinished = resultNonce >= 0;
+        reqPacket.nonce = nextNonce;
+        nextNonce += reqPacket.workload;
         // 아직 성공한 작업서버가 없다면, 실패한 작업서버에 다음 작업을 분배
         if (!isFinished) {
-          dwp_send(connectSd, DWP_TYPE_WORK, &reqPacket);
+          dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
           printf(">> The work request is sent to %d\n", connectSd);
         }
         pthread_mutex_unlock(&mutex);
@@ -260,7 +261,7 @@ void * client_module(void * arg)
 
 	fprintf(stderr,"#%d The client is disconnected.\n", connectSd);
 	CLOSESOCKET(connectSd);
-  free(resPacket.challenge);
+  dwp_destroy(&resPacket);
 }
 
 /**
