@@ -2,15 +2,15 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#define DWP_HEADER_LENGTH 10
-#define DWP_BODY_LENGTH 127
-#define DWP_LENGTH (DWP_HEADER_LENGTH + DWP_BODY_LENGTH)
-#define DWP_QR_REQUEST 0
-#define DWP_QR_RESPONSE 1
-#define DWP_TYPE_WORK 0
-#define DWP_TYPE_STOP 1
-#define DWP_TYPE_SUCCESS 0
-#define DWP_TYPE_FAIL 1
+#define DWP_HEADER_LENGTH 10  // DWP 패킷 헤더 길이
+#define DWP_BODY_LENGTH 127 // DWP 패킷 바디 최대 길이
+#define DWP_LENGTH (DWP_HEADER_LENGTH + DWP_BODY_LENGTH)  // DWP 패킷 최대 길이
+#define DWP_QR_REQUEST 0  // DWP 패킷 QR-요청 필드
+#define DWP_QR_RESPONSE 1 // DWP 패킷 QR-응답 필드
+#define DWP_TYPE_WORK 0 // DWP 패킷 Type-작업요청 필드
+#define DWP_TYPE_STOP 1 // DWP 패킷 Type-중단요청 필드
+#define DWP_TYPE_SUCCESS 0  // DWP 패킷 Type-성공 필드
+#define DWP_TYPE_FAIL 1 // DWP 패킷 Type-실패 필드
 
 typedef struct _DWP_Header_Data {
   unsigned short qr : 1;
@@ -26,6 +26,16 @@ typedef struct _DWP_Packet {
   char* challenge;
 } dwp_packet;
 
+/**
+ * @brief 초기 DWP 요청 패킷을 생성하는 함수이다.
+ * 
+ * @param difficulty 난이도
+ * @param workload 작업량
+ * @param challenge 챌린지
+ * @param bodylen 바디의 길이
+ * @param packet 반환되는 요청 패킷
+ * @return int 함수 실행 결과값
+ */
 int dwp_create_req(int difficulty, unsigned int workload, const char* challenge, int bodylen, dwp_packet* packet)
 {
   packet->data.qr = DWP_QR_REQUEST;
@@ -41,6 +51,17 @@ int dwp_create_req(int difficulty, unsigned int workload, const char* challenge,
   return 0;
 }
 
+/**
+ * @brief 성공 응답 패킷을 생성하는 함수이다.
+ * 
+ * @param difficulty 난이도
+ * @param nonce 정답 nonce
+ * @param workload 작업량
+ * @param challenge 챌린지
+ * @param bodylen 바디의 길이
+ * @param packet 반환되는 성공응답 패킷
+ * @return int 함수 실행 결과값
+ */
 int dwp_create_res(int difficulty, unsigned int nonce, unsigned int workload, const char* challenge, int bodylen, dwp_packet* packet)
 {
   packet->data.qr = DWP_QR_RESPONSE;
@@ -56,6 +77,13 @@ int dwp_create_res(int difficulty, unsigned int nonce, unsigned int workload, co
   return 0;
 }
 
+/**
+ * @brief DWP 패킷 구조체를 기반으로 문자 배열을 생성하는 함수이다.
+ * 
+ * @param packet src. - 패킷 구조체
+ * @param buffer dest. - 문자 배열
+ * @return int buffer 변수에 할당된 총 바이트 수. 실패 시 -1
+ */
 int dwp_to_arraybuffer(const dwp_packet* packet, char* buffer)
 {
   int totalSize = 0;
@@ -97,6 +125,13 @@ int dwp_to_arraybuffer(const dwp_packet* packet, char* buffer)
   return totalSize;
 }
 
+/**
+ * @brief DWP 문자 배열을 기반으로 패킷 구조체을 생성하는 함수이다.
+ * 
+ * @param buffer src. - 문자 배열
+ * @param packet dest. - 패킷 구조체
+ * @return int packet 변수에 할당된 총 바이트 수. 실패 시 -1
+ */
 int dwp_to_struct(const char* buffer, dwp_packet* packet)
 {
   int totalSize = 0;
@@ -135,6 +170,15 @@ int dwp_to_struct(const char* buffer, dwp_packet* packet)
   return totalSize;
 }
 
+/**
+ * @brief 지정된 파일디스크립터를 통해 패킷을 송신하는 함수이다.
+ * 
+ * @param fd 패킷을 송신할 파일디스크립터
+ * @param qr 패킷의 QR 필드
+ * @param type 패킷의 TYPE 필드
+ * @param packet 송신할 패킷. type이 DWP_TYPE_STOP이나 DWP_TYPE_FAIL인 경우 무시
+ * @return int 함수의 실행결과
+ */
 int dwp_send(int fd, int qr, int type, const dwp_packet* packet)
 {
   char packetArray[DWP_LENGTH];
@@ -145,6 +189,7 @@ int dwp_send(int fd, int qr, int type, const dwp_packet* packet)
       break;
     case DWP_TYPE_STOP:
       {
+        // 작업중단/실패 패킷을 생성한다.
         dwp_packet tmpPacket;
         tmpPacket.data.qr = qr;
         tmpPacket.data.type = DWP_TYPE_STOP;
@@ -160,10 +205,18 @@ int dwp_send(int fd, int qr, int type, const dwp_packet* packet)
       return -1;
   }
 
+  // 패킷 정보가 담긴 문자 배열을 전송한다.
   int res = send(fd, packetArray, size, 0);
   return res;
 }
 
+/**
+ * @brief 지정된 파일디스크립터를 통해 패킷을 수신하는 함수이다.
+ * 
+ * @param fd 패킷을 수신할 파일디스크립터
+ * @param packet 수신한 패킷이 담길 패킷 구조체
+ * @return int 함수의 실행결과
+ */
 int dwp_recv(int fd, dwp_packet* packet)
 {
   char packetArray[DWP_LENGTH];
@@ -179,6 +232,13 @@ int dwp_recv(int fd, dwp_packet* packet)
   return length;
 }
 
+/**
+ * @brief 패킷의 깊은 복사를 수행하는 함수이다.
+ * 
+ * @param dest 복사되는 패킷 구조체
+ * @param src 복사하는 패킷 구조체
+ * @return int 함수 실행 결과
+ */
 int dwp_copy(dwp_packet* dest, const dwp_packet* src)
 {
   dest->data = src->data;
@@ -192,7 +252,7 @@ int dwp_copy(dwp_packet* dest, const dwp_packet* src)
   int bodylen = src->data.bodylen;
   dest->challenge = (char*)malloc(bodylen + 1);
   if (dest->challenge == NULL) {
-    return 0;
+    return -1;
   }
   strncpy(dest->challenge, src->challenge, bodylen);
   dest->challenge[bodylen] = '\0';
@@ -200,10 +260,18 @@ int dwp_copy(dwp_packet* dest, const dwp_packet* src)
   return 0;
 }
 
+/**
+ * @brief packet 구조체에 할당된 자원을 반환하는 함수이다.
+ * 
+ * @param packet 자원을 반환할 패킷 구조체
+ * @return int 함수 실행결과
+ */
 int dwp_destroy(dwp_packet* packet)
 {
   if (packet->challenge != NULL) {
     free(packet->challenge);
     packet->challenge = NULL;
   }
+  
+  return 0;
 }
