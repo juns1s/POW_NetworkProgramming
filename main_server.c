@@ -255,7 +255,7 @@ void * client_module(void * arg)
         // 아직 성공한 작업서버가 없다면, 실패한 작업서버에 다음 작업을 분배
         if (!isFinished) {
           dwp_send(connectSd, DWP_QR_REQUEST, DWP_TYPE_WORK, &reqPacket);
-          printf(">> The work request is sent to %d\n", connectSd);
+          printf(">> The work request is sent to #%d\n", connectSd);
         }
         pthread_mutex_unlock(&mutex);
         break;
@@ -267,7 +267,6 @@ void * client_module(void * arg)
 	}
 
 	CLOSESOCKET(connectSd);
-  dwp_destroy(&resPacket);
 	fprintf(stderr,">> The client #%d is disconnected.\n", connectSd);
 }
 
