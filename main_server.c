@@ -40,11 +40,10 @@ int main(int argc, char** argv)
 	struct sockaddr_in clntAddr;
 	int clntAddrLen;
   dwp_packet reqPacket;
-	pthread_t thread;
+	pthread_t thread[NUM_WORKING_SERVER];
 
-	if(argc != 2)
-	{
-		printf(">> Usage: %s [Port Number]\n", argv[0]);
+	if(argc < 3) {
+    fprintf(stderr, ">> usage: main_server hostname port\n");
 		return -1;
 	}
 
@@ -56,8 +55,7 @@ int main(int argc, char** argv)
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;
-  if (getaddrinfo(NULL, argv[1], &hints, &bind_address)) {
+  if (getaddrinfo(argv[1], argv[2], &hints, &bind_address)) {
     errProc("getaddrinfo");
   }
 
@@ -132,6 +130,7 @@ int main(int argc, char** argv)
     free(challenge);
   }
   
+  // 입력받은 데이터를 토대로 초기 DWP 요청 패킷을 생성한다.
   dwp_create_req(difficulty, workload, challenge, bodylen, &reqPacket);
 
   // Proof of Work 시작
@@ -143,10 +142,10 @@ int main(int argc, char** argv)
     ThreadParams* params = malloc(sizeof(ThreadParams));
     params->packet = reqPacket;
     params->socket = connectSd[i];
-		pthread_create(&thread, NULL, client_module, (void *)params);
-		pthread_detach(thread);
+		pthread_create(&thread[i], NULL, client_module, (void *)params);
   }
 
+  // 결과 nonce를 찾았는지 계속해서 확인한다.
   bool isFinished = false;
   while (true) {
     pthread_mutex_lock(&mutex); // 뮤텍스를 통해 resultNonce 보호
@@ -158,10 +157,17 @@ int main(int argc, char** argv)
     }
   }
 
+  // Proof of Work 종료
   elapsedtime = clock() - startTime;
 
-  printf(">> Elapsed Time: %.2lf\n", elapsedtime/(double)CLOCKS_PER_SEC);
+  printf(">> Elapsed Time: %.2lf sec\n", elapsedtime/(double)CLOCKS_PER_SEC);
+  printf(">> Challenge: %s\n", challenge);
+  printf(">> Difficulty: %d\n", difficulty);
   printf(">> Nonce: %d\n", resultNonce);
+
+  for (int i = 0; i < NUM_WORKING_SERVER; i++) {
+    pthread_join(thread[i], NULL);
+  }
 
 	CLOSESOCKET(listenSd);
   pthread_mutex_destroy(&mutex);
@@ -260,9 +266,9 @@ void * client_module(void * arg)
     dwp_destroy(&resPacket);
 	}
 
-	fprintf(stderr,">> The client #%d is disconnected.\n", connectSd);
 	CLOSESOCKET(connectSd);
   dwp_destroy(&resPacket);
+	fprintf(stderr,">> The client #%d is disconnected.\n", connectSd);
 }
 
 /**

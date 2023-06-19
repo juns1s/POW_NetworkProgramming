@@ -202,6 +202,8 @@ int dwp_copy(dwp_packet* dest, const dwp_packet* src)
 
 int dwp_destroy(dwp_packet* packet)
 {
-  free(packet->challenge);
-  packet->challenge = NULL;
+  if (packet->challenge != NULL) {
+    free(packet->challenge);
+    packet->challenge = NULL;
+  }
 }
