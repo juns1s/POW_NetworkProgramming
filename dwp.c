@@ -92,7 +92,6 @@ int dwp_to_arraybuffer(const dwp_packet* packet, char* buffer)
       return -1;
     }
     memcpy(buffer, packet->challenge, size);  // '\0'은 buffer에서 제외된다.
-    totalSize += size;
   }
 
   return totalSize;
@@ -131,6 +130,7 @@ int dwp_to_struct(const char* buffer, dwp_packet* packet)
   else {
     packet->challenge = NULL;
   }
+  totalSize += bodylen;
 
   return totalSize;
 }
@@ -145,11 +145,15 @@ int dwp_send(int fd, int qr, int type, const dwp_packet* packet)
       break;
     case DWP_TYPE_STOP:
       {
-        dwp_packet* tmpPacket;
-        memset(tmpPacket, 0, sizeof(tmpPacket));
-        tmpPacket->data.qr = qr;
-        tmpPacket->data.type = DWP_TYPE_STOP;
-        size = dwp_to_arraybuffer(tmpPacket, packetArray);
+        dwp_packet tmpPacket;
+        tmpPacket.data.qr = qr;
+        tmpPacket.data.type = DWP_TYPE_STOP;
+        tmpPacket.data.difficulty = 0;
+        tmpPacket.data.bodylen = 0;
+        tmpPacket.nonce = 0;
+        tmpPacket.workload = 0;
+        tmpPacket.challenge = NULL;
+        size = dwp_to_arraybuffer(&tmpPacket, packetArray);
       }
       break;
     default:
@@ -185,17 +189,21 @@ int dwp_copy(dwp_packet* dest, const dwp_packet* src)
   free(dest->challenge);
 
   // 새로운 challenge 메모리를 할당하고 src->challenge를 복사
-  dest->challenge = (char*)malloc(strlen(src->challenge));
+  int bodylen = src->data.bodylen;
+  dest->challenge = (char*)malloc(bodylen + 1);
   if (dest->challenge == NULL) {
     return 0;
   }
-  strcpy(dest->challenge, src->challenge);
+  strncpy(dest->challenge, src->challenge, bodylen);
+  dest->challenge[bodylen] = '\0';
 
   return 0;
 }
 
 int dwp_destroy(dwp_packet* packet)
 {
-  free(packet->challenge);
-  packet->challenge = NULL;
+  if (packet->challenge != NULL) {
+    free(packet->challenge);
+    packet->challenge = NULL;
+  }
 }

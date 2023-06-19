@@ -43,6 +43,7 @@
 #define GETSOCKETERRNO() (errno)
 
 void errProc(const char* str);
+void terminateFindNonceThread();
 void* readThread(void *);
 void* findNonceThread(void*);
 
@@ -57,8 +58,8 @@ static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 int main(int argc, char *argv[]) 
 {
   if (argc < 3) {
-      fprintf(stderr, ">> usage: tcp_client hostname port\n");
-      return 1;
+      fprintf(stderr, ">> usage: working_server hostname port\n");
+      return -1;
   }
 
   // hostname과 port를 사용해서 메인서버의 주소를 구한다. 
@@ -114,6 +115,18 @@ void errProc(const char* str)
 }
 
 /**
+ * @brief findNonceThread 함수를 중단시키는 함수이다.
+ * 
+ */
+void terminateFindNonceThread()
+{
+  pthread_mutex_lock(&mutex);
+  pthread_cond_signal(&cond);
+  isFinished = true;
+  pthread_mutex_unlock(&mutex);
+}
+
+/**
  * @brief 연결된 메인서버 소켓에서 패킷을 수신하고 처리하는 함수이다.
  * 
  * @param arg 메인서버의 소켓 포인터
@@ -130,6 +143,7 @@ void* readThread(void* arg)
     recvLen = dwp_recv(serverSd, &reqPacket);
     if (recvLen < 0) {
       printf(">> Connection closed by main server.\n");
+      terminateFindNonceThread();
       break;
     }
 
@@ -147,14 +161,12 @@ void* readThread(void* arg)
         dwp_copy(&packet, &reqPacket);
         isWorkRequested = true;
         pthread_mutex_unlock(&mutex);
+        dwp_destroy(&reqPacket);
         break;
       case DWP_TYPE_STOP: // 수신한 패킷이 중단 요청인 경우
         printf(">> The stop request is received\n");
         terminateFindNonce = true;
-        pthread_mutex_lock(&mutex);
-        pthread_cond_signal(&cond);
-        isFinished = true;
-        pthread_mutex_unlock(&mutex);
+        terminateFindNonceThread();
         break;
       default:
         fprintf(stderr, "## Invalid packet type.\n");
@@ -187,7 +199,7 @@ void* findNonceThread(void* arg)
       pthread_cond_wait(&cond, &mutex);
     }
 
-    // 중단 요청이 온 경우 findNonce 및 스레드 종료
+    // 중단 요청이 온 경우 스레드 종료
     if (isFinished) { 
       pthread_mutex_unlock(&mutex);
       break;
@@ -197,6 +209,7 @@ void* findNonceThread(void* arg)
     isWorkRequested = false;
     memset(&reqPacket, 0, sizeof(reqPacket));
     dwp_copy(&reqPacket, &packet);
+    dwp_destroy(&packet);
     pthread_mutex_unlock(&mutex);
 
     unsigned int resultNonce;   // 결과 nonce
@@ -207,10 +220,7 @@ void* findNonceThread(void* arg)
     unsigned int workload = reqPacket.workload;     // 작업량
     char* challenge = strdup(reqPacket.challenge);  // 챌린지
 
-    printf(">> Start to find nonce\n");
-    printf(">>>> Challenge: %s\n", challenge);
-    printf(">>>> Difficulty: %d\n", difficulty);
-    printf(">>>> Range: [%d..%d)\n", startNonce, startNonce + workload);
+    printf(">> Start to find nonce in range: [%d..%d)\n", startNonce, startNonce + workload);
 
     // nonce 값을 찾는다.
     int res = findNonce(&resultNonce, sha256Hash, challenge, difficulty, startNonce, workload);
@@ -220,16 +230,23 @@ void* findNonceThread(void* arg)
     switch (res) {
       case POW_NOTFOUND:  // 난이도 조건을 만족하는 nonce 값이 없는 경우
         dwp_send(serverSd, DWP_QR_RESPONSE, DWP_TYPE_FAIL, NULL);
+        printf(">> Failure response is sent\n");
         break;
       case POW_SUCCESS: // nonce 값을 찾은 경우
         memset(&resPacket, 0, sizeof(resPacket));
         dwp_create_res(difficulty, resultNonce, workload, challenge, strlen(challenge), &resPacket);
         dwp_send(serverSd, DWP_QR_RESPONSE, DWP_TYPE_SUCCESS, &resPacket);
+        printf(">> Success response is sent\n");
         break;
       case POW_TERMINATED:  // findNonce가 중단된 경우
+        printf(">> findNonce is terminated\n");
+        break;
       default:
         break;
     }
+
+    free(challenge);
+    dwp_destroy(&reqPacket);
   }
 
   dwp_destroy(&reqPacket);
