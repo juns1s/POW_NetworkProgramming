@@ -43,6 +43,7 @@
 #define GETSOCKETERRNO() (errno)
 
 void errProc(const char* str);
+void terminateFindNonceThread();
 void* readThread(void *);
 void* findNonceThread(void*);
 
@@ -57,8 +58,8 @@ static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 int main(int argc, char *argv[]) 
 {
   if (argc < 3) {
-      fprintf(stderr, ">> usage: tcp_client hostname port\n");
-      return 1;
+      fprintf(stderr, ">> usage: working_server hostname port\n");
+      return -1;
   }
 
   // hostname과 port를 사용해서 메인서버의 주소를 구한다. 
@@ -114,6 +115,18 @@ void errProc(const char* str)
 }
 
 /**
+ * @brief findNonceThread 함수를 중단시키는 함수이다.
+ * 
+ */
+void terminateFindNonceThread()
+{
+  pthread_mutex_lock(&mutex);
+  pthread_cond_signal(&cond);
+  isFinished = true;
+  pthread_mutex_unlock(&mutex);
+}
+
+/**
  * @brief 연결된 메인서버 소켓에서 패킷을 수신하고 처리하는 함수이다.
  * 
  * @param arg 메인서버의 소켓 포인터
@@ -130,6 +143,7 @@ void* readThread(void* arg)
     recvLen = dwp_recv(serverSd, &reqPacket);
     if (recvLen < 0) {
       printf(">> Connection closed by main server.\n");
+      terminateFindNonceThread();
       break;
     }
 
@@ -152,10 +166,7 @@ void* readThread(void* arg)
       case DWP_TYPE_STOP: // 수신한 패킷이 중단 요청인 경우
         printf(">> The stop request is received\n");
         terminateFindNonce = true;
-        pthread_mutex_lock(&mutex);
-        pthread_cond_signal(&cond);
-        isFinished = true;
-        pthread_mutex_unlock(&mutex);
+        terminateFindNonceThread();
         break;
       default:
         fprintf(stderr, "## Invalid packet type.\n");
@@ -188,7 +199,7 @@ void* findNonceThread(void* arg)
       pthread_cond_wait(&cond, &mutex);
     }
 
-    // 중단 요청이 온 경우 findNonce 및 스레드 종료
+    // 중단 요청이 온 경우 스레드 종료
     if (isFinished) { 
       pthread_mutex_unlock(&mutex);
       break;
