@@ -185,9 +185,11 @@ int dwp_send(int fd, int qr, int type, const dwp_packet* packet)
   int size;
   switch (type) {
     case DWP_TYPE_WORK:
+    case DWP_TYPE_SUCCESS:
       size = dwp_to_arraybuffer(packet, packetArray);
       break;
     case DWP_TYPE_STOP:
+    case DWP_TYPE_FAIL:
       {
         // 작업중단/실패 패킷을 생성한다.
         dwp_packet tmpPacket;
