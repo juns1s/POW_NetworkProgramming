@@ -5,7 +5,7 @@
 #include "proof_of_work.h"
 
 int main(){
-    char *challenge = "201928732019283320192836";
+    char *challenge = "201928332019283620192873";
     char sha256Hash[65];
     unsigned int nonce;
 
@@ -16,10 +16,18 @@ int main(){
     printf("difficulty: ");
     scanf("%d", &difficulty);
 
-    findNonce(nonce, sha256Hash, challenge, difficulty,startNonce,nonceRange);
+    time_t start, end;
 
-    printf("Challenge + Nonce: %s + %s\n", challenge, nonce);
+    start = time(NULL);
+    
+    findNonce(&nonce, sha256Hash, challenge, difficulty,startNonce,nonceRange);
+
+    end = time(NULL);
+
+    printf("Challenge + Nonce: %s + %u\n", challenge, nonce);
     printf("Hash: %s\n", sha256Hash);
+
+    printf("Total Time: %ld\n", end-start);
 
     return 0;
 }
