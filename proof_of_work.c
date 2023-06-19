@@ -43,9 +43,6 @@ int findNonce(unsigned int* nonce, char hashresult[65], const char * challenge, 
         // 해시값 계산
         sha256_hash_string((const unsigned char *)inputString, hash);
 
-        printf("Input: %s\t ->SHA-256 Hash: ", inputString);
-        printf("%s\n\n", hash);
-
         //hash값이 난이도 조건을 충족하는 경우
         if (strncmp(hash, target, difficulty) == 0) {
             printf("Nonce found: %d\n", startNonce+i);
@@ -53,9 +50,6 @@ int findNonce(unsigned int* nonce, char hashresult[65], const char * challenge, 
             strcpy(hashresult, hash);
             return POW_SUCCESS;
         }
-
-        if(i%10000==0)
-            system("clear");
     }
     printf("Nonce is not this range\n");
     *nonce = -1;
